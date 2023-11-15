@@ -1,0 +1,11 @@
+minio:
+  endpoint: "127.0.0.1:9001"
+  access_key: "access_key"
+  secret_key: "secret_key"
+
+postgre:
+  db_name: "db_name"
+  db_user: "db_user"
+  db_password: "db_password"
+  db_host: "127.0.0.1"
+  db_port: "5432"
