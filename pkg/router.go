@@ -26,8 +26,8 @@ func Download(c *gin.Context) {
 		return
 	}
 	bucketName := fileStore.Bucket
-	fileRealName := fileStore.FileName + fileStore.Ext
-	relPathFileName := fileStore.RelPath + "/" + fileRealName
+	storeFileName := fileStore.UUID + fileStore.Ext
+	relPathFileName := fmt.Sprintf("%s/%s", fileStore.RelPath, storeFileName)
 	// 获取 Minio 中的文件信息
 	objInfo, err := MinioHelperIns.minioClient.StatObject(c.Request.Context(), bucketName, relPathFileName, minio.StatObjectOptions{})
 	if err != nil {
@@ -48,14 +48,10 @@ func Download(c *gin.Context) {
 	// 设置响应头
 	c.Header("Accept-Ranges", "bytes")
 	c.Header("Content-Type", "application/octet-stream")
-	c.Header("Content-Disposition", "attachment; filename="+fileRealName)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s%s", fileStore.FileName, fileStore.Ext))
 	c.Header("Content-Length", strconv.FormatInt(end-start+1, 10))
-	c.Header("Content-Range", "bytes "+strconv.FormatInt(start, 10)+"-"+strconv.FormatInt(end, 10)+"/"+strconv.FormatInt(fileSize, 10))
+	c.Header("Content-Range", fmt.Sprintf("bytes %s-%s/%s", strconv.FormatInt(start, 10), strconv.FormatInt(end, 10), strconv.FormatInt(fileSize, 10)))
 
-	// 设置响应头，告诉浏览器该文件要下载
-	//c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileRealName))
-
-	log.Printf("Download file %s < %s", uuid, relPathFileName)
 	// 获取 Minio 中的文件内容
 	reader, err := MinioHelperIns.minioClient.GetObject(c.Request.Context(), bucketName, relPathFileName, minio.GetObjectOptions{})
 	if err != nil {
@@ -76,13 +72,8 @@ func Download(c *gin.Context) {
 		Fail500(c, "Error streaming content to response")
 		return
 	}
+	log.Printf("File download successful: %s < %s \n", uuid, relPathFileName)
 
-	// // 直接将 Minio 中的文件内容返回到响应中
-	// _, err = io.Copy(c.Writer, reader)
-	// if err != nil {
-	// 	c.String(http.StatusInternalServerError, "Error streaming content to response")
-	// 	return
-	// }
 }
 
 func Upload(c *gin.Context) {
@@ -93,27 +84,27 @@ func Upload(c *gin.Context) {
 	}
 	defer file.Close()
 
-	// 获取文件名
-	fileBaseName := strings.TrimSuffix(header.Filename, filepath.Ext(header.Filename))
-	// 获取扩展 带 "."
-	ext := filepath.Ext(header.Filename)
-
-	uuid, err := GenerateUUID()
-	if err != nil {
-		Fail500(c, err.Error())
-		return
-	}
 	bucketName := c.PostForm("bucketName")
 	if bucketName == "" {
 		Fail400(c, "BucketName can not be empty")
 		return
 	}
-	realFileName := fileBaseName + ext
 
+	// 获取文件名
+	fileBaseName := strings.TrimSuffix(header.Filename, filepath.Ext(header.Filename))
+	// 获取扩展 带 "."
+	ext := filepath.Ext(header.Filename)
+	// 生成UUID 存储
+	uuid, err := GenerateUUID()
+	if err != nil {
+		Fail500(c, err.Error())
+		return
+	}
+
+	storeFileName := uuid + ext
+	// 生成日期文件夹
 	dateDir := GetCurrentDate()
-	relPathFileName := dateDir + "/" + realFileName
-
-	log.Printf("Upload file: %s > %s \n", header.Filename, relPathFileName)
+	relPathFileName := dateDir + "/" + storeFileName
 
 	contentType := header.Header.Get("Content-Type")
 
@@ -122,7 +113,7 @@ func Upload(c *gin.Context) {
 	})
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error uploading the file to Minio"})
+		Fail500(c, "Error uploading the file to Minio")
 		return
 	}
 	fileStore := FileStore{
@@ -133,6 +124,7 @@ func Upload(c *gin.Context) {
 		Ext:      ext,
 	}
 	InsertFileStore(fileStore)
+	log.Printf("File uploaded successfully: %s > %s \n", header.Filename, relPathFileName)
 	Success(c, uuid)
 }
 
